@@ -85,7 +85,8 @@
     return {
       demo: false,
       async session() { return (await sb.auth.getSession()).data.session; },
-      onAuth(cb) { sb.auth.onAuthStateChange((_e, s) => cb(s)); },
+      // setTimeout: no llamar a Supabase dentro del callback (bloquea la sesión; ver docs de supabase-js)
+      onAuth(cb) { sb.auth.onAuthStateChange((_e, s) => { setTimeout(() => cb(s), 0); }); },
       signIn() {
         return sb.auth.signInWithOAuth({ provider: 'google', options: { redirectTo: location.origin + location.pathname } });
       },
