@@ -316,6 +316,7 @@
         <h1>${esc(ROOM)}</h1>
         <p>Entra con tu cuenta de Google y reserva la sala.</p>
         ${loginButtons}
+        <p><a href="privacidad.html" style="color:var(--muted);font-size:.85rem">Privacidad</a></p>
       </div>`;
   }
 
