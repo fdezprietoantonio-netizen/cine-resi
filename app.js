@@ -243,6 +243,11 @@
     scrolledDay: null,
   };
 
+  // Instalable como app (el móvil ofrece "Instalar" / "Añadir a pantalla de inicio")
+  if ('serviceWorker' in navigator && location.protocol !== 'file:') {
+    window.addEventListener('load', () => navigator.serviceWorker.register('sw.js').catch(() => {}));
+  }
+
   let toastTimer;
   function toast(msg, kind = '') {
     const el = $('#toast');
