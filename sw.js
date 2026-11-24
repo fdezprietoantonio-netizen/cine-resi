@@ -1,12 +1,14 @@
 // Service worker: permite instalar la app y que abra aunque la conexión sea mala.
 // Siempre intenta la red primero (así nadie ve una versión vieja) y solo usa la copia
 // guardada si no hay conexión. Las reservas (Supabase) nunca se guardan en caché.
-const CACHE = 'cine-v2';
+const CACHE = 'cine-v3';
 const SHELL = ['./', './index.html', './app.js', './style.css', './config.js', './manifest.webmanifest',
   './icons/icon-192.png', './icons/icon-512.png', './icons/apple-touch-icon.png'];
 
 self.addEventListener('install', (e) => {
-  e.waitUntil(caches.open(CACHE).then((c) => c.addAll(SHELL)).then(() => self.skipWaiting()));
+  e.waitUntil(caches.open(CACHE)
+    .then((c) => c.addAll(SHELL.map((u) => new Request(u, { cache: 'no-cache' }))))
+    .then(() => self.skipWaiting()));
 });
 
 self.addEventListener('activate', (e) => {
@@ -25,8 +27,9 @@ self.addEventListener('fetch', (e) => {
   const cdn = url.hostname === 'cdn.jsdelivr.net';
   if (!sameOrigin && !cdn) return; // Supabase, Google… directo a la red
 
+  // cache: 'no-cache' → pregunta siempre al servidor si hay versión nueva (GitHub Pages cachea 10 min)
   e.respondWith(
-    fetch(req)
+    fetch(req, sameOrigin ? { cache: 'no-cache' } : undefined)
       .then((res) => {
         if (res.ok && (sameOrigin || cdn)) {
           const copy = res.clone();
