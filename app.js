@@ -435,6 +435,7 @@
               </form>
             </div>
             <div class="card"><h2>Mis reservas</h2><div id="mine"></div></div>
+            <div class="card"><h2>Próximas reservas</h2><div id="upcoming"></div></div>
             <div class="card rules">
               <h2>Normas</h2>
               <ul>
@@ -589,16 +590,46 @@
     renderDays();
     renderTimeline();
     renderMine();
+    renderUpcoming();
     updateHint();
     if (state.profile.is_admin) renderAdmin();
+  }
+
+  // Reservas activas que tocan un día (índice 0 = hoy)
+  function onDay(i, now = new Date()) {
+    const d0 = addDays(today(), i).getTime(), d1 = addDays(today(), i + 1).getTime();
+    return state.list
+      .filter((r) => isActive(r, now) && r.start.getTime() < d1 && r.end.getTime() > d0)
+      .sort((a, b) => a.start - b.start);
   }
 
   function renderDays() {
     $('#days').innerHTML = Array.from({ length: DAYS_SHOWN }, (_, i) => {
       const d = addDays(today(), i);
       const label = i === 0 ? 'Hoy' : i === 1 ? 'Mañana' : DOW[d.getDay()];
-      return `<button class="day" role="tab" aria-selected="${i === state.dayIdx}" data-action="day" data-idx="${i}">${label}<small>${d.getDate()}/${d.getMonth() + 1}</small></button>`;
+      const n = onDay(i).length;
+      return `<button class="day" role="tab" aria-selected="${i === state.dayIdx}" data-action="day" data-idx="${i}">${label}${n ? `<span class="count-dot" title="${n} reserva${n > 1 ? 's' : ''}">${n}</span>` : ''}<small>${d.getDate()}/${d.getMonth() + 1}</small></button>`;
     }).join('');
+  }
+
+  function renderUpcoming() {
+    const now = new Date();
+    const list = state.list
+      .filter((r) => isActive(r, now) && r.end > now)
+      .sort((a, b) => a.start - b.start)
+      .slice(0, 8);
+    if (!list.length) { $('#upcoming').innerHTML = '<p class="empty">No hay reservas próximas. La sala está libre.</p>'; return; }
+    $('#upcoming').innerHTML = `<ul class="list">${list.map((r) => {
+      const idx = Math.round((dayStart(r.start) - today()) / 864e5);
+      const dayName = idx <= 0 ? 'Hoy' : idx === 1 ? 'Mañana' : fmtDay(r.start);
+      const mine = r.user_id === state.uid && !r.is_block;
+      const room = state.profile.is_admin && !r.is_block ? roomOf(r.user_id) : '';
+      const who = r.is_block ? `Bloqueada: ${r.note || 'sin motivo'}` : mine ? 'Tú' : r.user_name + (room ? ` · hab. ${room}` : '');
+      const nowOn = r.start <= now ? ' <span class="badge ok">Ahora</span>' : '';
+      return `<li class="item clickable-item" data-action="goto" data-idx="${Math.max(0, idx)}" role="button" tabindex="0">
+        <span class="when">${esc(dayName)} · ${hm(r.start)}–${hm(r.end)}${nowOn}</span>
+        <span class="meta">${esc(who)}</span></li>`;
+    }).join('')}</ul>`;
   }
 
   function renderTimeline() {
@@ -638,7 +669,11 @@
 
     if (state.scrolledDay !== state.dayIdx) {
       state.scrolledDay = state.dayIdx;
-      const focusMin = state.dayIdx === 0 ? Math.max(0, (now - d0) / MIN - 60) : 16 * 60;
+      // Abrir en la primera reserva del día; si no hay, en "ahora" (hoy) o a las 16:00
+      const first = onDay(state.dayIdx, now).find((r) => r.end > now);
+      let focusMin;
+      if (first) focusMin = Math.max(0, (Math.max(first.start.getTime(), d0, now.getTime() - 60 * MIN) - d0) / MIN - 30);
+      else focusMin = state.dayIdx === 0 ? Math.max(0, (now - d0) / MIN - 60) : 16 * 60;
       $('#timeline-wrap').scrollTop = focusMin * PX_PER_MIN;
     }
   }
@@ -722,8 +757,10 @@
     else if (a === 'room') renderRoom(true);
     else if (a === 'room-cancel') checkProfile();
     else if (a === 'tab') { setTab(el.dataset.tab); if (el.dataset.tab === 'admin') reload(); }
-    else if (a === 'day') {
+    else if (a === 'day' || a === 'goto') {
       state.dayIdx = Number(el.dataset.idx);
+      state.scrolledDay = null;
+      if (a === 'goto') $('#timeline-wrap').scrollIntoView({ behavior: 'smooth', block: 'start' });
       $('#f-day').value = String(state.dayIdx);
       renderDays(); renderTimeline(); updateHint();
     }

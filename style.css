@@ -99,6 +99,10 @@ h2 { font-size: 1rem; margin-bottom: .75rem; }
 .day small { display: block; color: var(--muted); font-size: .75rem; }
 .day[aria-selected="true"] { background: var(--accent); border-color: var(--accent); color: var(--accent-ink); }
 .day[aria-selected="true"] small { color: inherit; opacity: .85; }
+.count-dot { display: inline-block; min-width: 18px; padding: 0 5px; margin-left: 5px; border-radius: 99px; background: var(--other); color: var(--surface); font-size: .72rem; font-weight: 700; line-height: 18px; vertical-align: 1px; }
+.day[aria-selected="true"] .count-dot { background: var(--accent-ink); color: var(--accent); }
+.clickable-item { cursor: pointer; }
+.clickable-item:hover { border-color: var(--other); }
 
 /* Línea de tiempo */
 .legend { display: flex; gap: 14px; flex-wrap: wrap; font-size: .8rem; color: var(--muted); margin-bottom: 8px; }
