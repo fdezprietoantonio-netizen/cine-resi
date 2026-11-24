@@ -18,6 +18,7 @@
   const MIN = 60000;
   const DAYS_SHOWN = RULES.maxAdvanceDays + 1;
   const PX_PER_MIN = 0.8;
+  const ROOM_RE = /^[A-Z0-9ºª./ -]{1,10}$/;
 
   // ===================================================================
   //  Utilidades
@@ -104,6 +105,7 @@
       block: (s, e, note) => rpc('create_block', { p_start: s.toISOString(), p_end: e.toISOString(), p_note: note }),
       async members() { return ok(await sb.from('members').select('*').order('created_at', { ascending: false })); },
       setStatus: (uid, status) => rpc('set_member_status', { p_user: uid, p_status: status }),
+      setRoom: (room) => rpc('set_my_room', { p_room: room }),
       async audit() { return ok(await sb.from('audit_log').select('*').order('at', { ascending: false }).limit(150)); },
       subscribe(cb) {
         sb.channel('reservas')
@@ -117,7 +119,7 @@
   //  MODO DEMO: mismas reglas, datos solo en este navegador
   // ===================================================================
   function demoBackend() {
-    const KEY = 'cine-demo-v2';
+    const KEY = 'cine-demo-v3';
     const store = {
       get() { try { return JSON.parse(localStorage.getItem(KEY)); } catch { return null; } },
       set(v) { try { localStorage.setItem(KEY, JSON.stringify(v)); } catch { /* sin almacenamiento */ } },
@@ -131,10 +133,10 @@
         current: null,
         nextId: 5,
         members: [
-          { user_id: 'u-admin', name: 'Tú (administrador)', email: 'admin@ejemplo.com', status: 'approved', is_admin: true, created_at: now },
-          { user_id: 'u-lucia', name: 'Lucía', email: 'lucia@ejemplo.com', status: 'approved', created_at: now },
-          { user_id: 'u-marco', name: 'Marco', email: 'marco@ejemplo.com', status: 'approved', created_at: now },
-          { user_id: 'u-sara', name: 'Sara', email: 'sara@ejemplo.com', status: 'approved', created_at: now },
+          { user_id: 'u-admin', name: 'Tú (administrador)', email: 'admin@ejemplo.com', status: 'approved', is_admin: true, room: '101', created_at: now },
+          { user_id: 'u-lucia', name: 'Lucía', email: 'lucia@ejemplo.com', status: 'approved', room: '214', created_at: now },
+          { user_id: 'u-marco', name: 'Marco', email: 'marco@ejemplo.com', status: 'approved', room: 'B-12', created_at: now },
+          { user_id: 'u-sara', name: 'Sara (nueva)', email: 'sara@ejemplo.com', status: 'approved', room: null, created_at: now },
         ],
         reservations: [
           res(1, 'u-lucia', 'Lucía', at(0, 21), at(0, 23, 30)),
@@ -169,18 +171,25 @@
       onAuth(cb) { authCb = cb; },
       async signIn(uid) { db.current = uid; store.set(db); authCb?.({ user: { id: uid } }); },
       async signOut() { db.current = null; store.set(db); authCb?.(null); },
-      async register() { const m = me(); return { status: m.is_admin ? 'approved' : m.status, is_admin: !!m.is_admin, name: m.name }; },
+      async register() { const m = me(); return { status: m.is_admin ? 'approved' : m.status, is_admin: !!m.is_admin, name: m.name, room: m.room || null }; },
+      async setRoom(room) {
+        const v = String(room || '').trim().toUpperCase();
+        if (!ROOM_RE.test(v)) fail('Escribe un número de habitación válido (por ejemplo 214 o B-12).');
+        me().room = v;
+        log('pone habitación', null, { hab: v }); save();
+      },
       async list(from, to) {
         if (!approved()) fail('Tu cuenta todavía no está aprobada.');
         return all().filter((r) => !r.cancelled_at && r.start < to && r.end > from).sort((a, b) => a.start - b.start);
       },
       async create(s, e) {
         if (!approved()) fail('Tu cuenta todavía no está aprobada.');
+        if (!me().room) fail('Pon tu número de habitación antes de reservar.');
         s = new Date(Math.floor(s / MIN) * MIN); e = new Date(Math.floor(e / MIN) * MIN);
         const err = validate(all(), db.current, s, e);
         if (err) fail(err);
         const r = { id: db.nextId++, user_id: db.current, user_name: me().name, starts_at: s.toISOString(), ends_at: e.toISOString(), is_block: false, note: null, created_at: new Date().toISOString(), checked_in_at: null, cancelled_at: null };
-        db.reservations.push(r); log('reserva', r); save();
+        db.reservations.push(r); log('reserva', r, { hab: me().room }); save();
       },
       async cancel(id) {
         const r = db.reservations.find((x) => x.id === id);
@@ -214,7 +223,7 @@
         const r = { id: db.nextId++, user_id: db.current, user_name: 'Administración', starts_at: s.toISOString(), ends_at: e.toISOString(), is_block: true, note: note || null, created_at: now.toISOString(), checked_in_at: null, cancelled_at: null };
         db.reservations.push(r); log('bloquea', r); save();
       },
-      async members() { if (!isAdmin()) fail('Sin permiso.'); return db.members.filter((m) => !m.is_admin); },
+      async members() { if (!isAdmin()) fail('Sin permiso.'); return db.members; },
       async setStatus(uid, status) {
         if (!isAdmin()) fail('Sin permiso.');
         const m = db.members.find((x) => x.user_id === uid);
@@ -287,8 +296,39 @@
       return;
     }
     if (state.profile.status !== 'approved') return renderPending();
+    if (!state.profile.room) return renderRoom(false);
     renderShell();
     await reload();
+  }
+
+  // ----- Número de habitación -----
+  function renderRoom(editing) {
+    app.innerHTML = `${demoBanner()}
+      <div class="center">
+        <div class="logo">🚪</div>
+        <h1>${editing ? 'Cambiar habitación' : `Hola, ${esc(state.profile.name)}`}</h1>
+        <p>${editing ? 'Escribe tu número de habitación.' : 'Antes de reservar, dinos tu número de habitación. Solo lo verá el administrador.'}</p>
+        <form class="form" id="f-room" autocomplete="off" style="text-align:left">
+          <label>Número de habitación<input id="room-input" maxlength="10" required placeholder="Por ejemplo 214" value="${esc(state.profile.room || '')}" autocapitalize="characters" inputmode="text"></label>
+          <p class="hint bad" id="room-hint"></p>
+          <button class="btn primary" type="submit">Guardar</button>
+          ${editing ? '<button class="btn" type="button" data-action="room-cancel">Cancelar</button>' : '<button class="btn ghost" type="button" data-action="logout">Salir</button>'}
+        </form>
+      </div>`;
+    const input = $('#room-input');
+    input.focus();
+    $('#f-room').addEventListener('submit', async (ev) => {
+      ev.preventDefault();
+      const v = input.value.trim().toUpperCase();
+      if (!ROOM_RE.test(v)) { $('#room-hint').textContent = 'Escribe un número de habitación válido (por ejemplo 214 o B-12).'; return; }
+      try {
+        await api.setRoom(v);
+        toast(`Habitación ${v} guardada`);
+        await checkProfile();
+      } catch (e) {
+        $('#room-hint').textContent = e.message;
+      }
+    });
   }
 
   async function reload() {
@@ -358,7 +398,7 @@
     app.innerHTML = `
       <header class="top">
         <div class="brand"><span class="logo">🎬</span><span>${esc(ROOM)}</span></div>
-        <div class="who"><span>${esc(p.name)}${p.is_admin ? ' · administrador' : ''}</span><button class="btn small" data-action="logout">Salir</button></div>
+        <div class="who"><span>${esc(p.name)}${p.is_admin ? ' · administrador' : ''}</span><button class="btn small ghost" data-action="room" title="Cambiar habitación">Hab. ${esc(p.room)}</button><button class="btn small" data-action="logout">Salir</button></div>
       </header>
       ${demoBanner()}
       ${p.is_admin ? `<nav class="tabs" role="tablist">
@@ -586,7 +626,8 @@
       const cls = r.is_block ? 'block' : mine ? 'mine' : 'other';
       const pending = !r.is_block && !r.checked_in_at && now >= r.start;
       const clickable = mine || state.profile.is_admin;
-      const title = r.is_block ? `🔒 ${r.note || 'Sala bloqueada'}` : mine ? `Tú` : r.user_name;
+      const room = state.profile.is_admin && !r.is_block ? roomOf(r.user_id) : '';
+      const title = (r.is_block ? `🔒 ${r.note || 'Sala bloqueada'}` : mine ? `Tú` : r.user_name) + (room && !mine ? ` · hab. ${room}` : '');
       html += `<div class="slot ${cls}${pending ? ' pending' : ''}${clickable ? ' clickable' : ''}" data-id="${esc(r.id)}" style="top:${top}px;height:${height}px"
         title="${esc(title)} · ${esc(fmtRange(r.start, r.end))}${clickable ? ' · clic para cancelar' : ''}">
         <b>${esc(title)}</b><span>${hm(r.start)}–${hm(r.end)}${r.checked_in_at ? ' · ✔ en la sala' : pending ? ' · sin confirmar' : ''}</span></div>`;
@@ -599,6 +640,10 @@
       const focusMin = state.dayIdx === 0 ? Math.max(0, (now - d0) / MIN - 60) : 16 * 60;
       $('#timeline-wrap').scrollTop = focusMin * PX_PER_MIN;
     }
+  }
+
+  function roomOf(uid) {
+    return state.members.find((m) => m.user_id === uid)?.room || '';
   }
 
   function checkinWindow(r) {
@@ -641,7 +686,7 @@
 
     $('#a-members').innerHTML = others.length
       ? `<ul class="list">${others.map((m) => `<li class="item">
-          <span class="when">${esc(m.name)} ${m.status === 'blocked' ? '<span class="badge no">Sin acceso</span>' : '<span class="badge ok">Con acceso</span>'}</span>
+          <span class="when">${esc(m.name)} · ${m.room ? `hab. ${esc(m.room)}` : '<span class="badge wait">Sin habitación</span>'} ${m.status === 'blocked' ? '<span class="badge no">Sin acceso</span>' : '<span class="badge ok">Con acceso</span>'}</span>
           <span class="meta">${esc(m.email)}</span>
           <div class="actions">${m.status !== 'blocked'
             ? `<button class="btn small" data-action="status" data-uid="${esc(m.user_id)}" data-status="blocked">Quitar acceso</button>`
@@ -656,7 +701,8 @@
           const range = d.inicio && d.fin ? ` · ${fmtRange(new Date(d.inicio), new Date(d.fin))}` : '';
           const who = d.quien && d.quien !== a.actor_name && d.quien !== 'Administración' ? ` ${esc(d.quien)}` : '';
           const note = d.nota ? ` · «${esc(d.nota)}»` : '';
-          return `<li><time>${esc(fmtWhen(a.at))}</time><b>${esc(a.actor_name || '?')}</b> ${esc(a.action)}${who}${esc(range)}${note}</li>`;
+          const hab = d.hab ? ` · hab. ${esc(d.hab)}` : '';
+          return `<li><time>${esc(fmtWhen(a.at))}</time><b>${esc(a.actor_name || '?')}</b> ${esc(a.action)}${who}${esc(range)}${hab}${note}</li>`;
         }).join('')
       : '<li class="empty">Sin actividad todavía.</li>';
   }
@@ -672,6 +718,8 @@
     else if (a === 'demo-reset') api.reset();
     else if (a === 'logout') api.signOut();
     else if (a === 'recheck') checkProfile();
+    else if (a === 'room') renderRoom(true);
+    else if (a === 'room-cancel') checkProfile();
     else if (a === 'tab') { setTab(el.dataset.tab); if (el.dataset.tab === 'admin') reload(); }
     else if (a === 'day') {
       state.dayIdx = Number(el.dataset.idx);

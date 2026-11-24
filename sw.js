@@ -1,7 +1,7 @@
 // Service worker: permite instalar la app y que abra aunque la conexión sea mala.
 // Siempre intenta la red primero (así nadie ve una versión vieja) y solo usa la copia
 // guardada si no hay conexión. Las reservas (Supabase) nunca se guardan en caché.
-const CACHE = 'cine-v1';
+const CACHE = 'cine-v2';
 const SHELL = ['./', './index.html', './app.js', './style.css', './config.js', './manifest.webmanifest',
   './icons/icon-192.png', './icons/icon-512.png', './icons/apple-touch-icon.png'];
 
